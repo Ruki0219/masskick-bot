@@ -1,184 +1,98 @@
 import discord
 from discord.ext import commands
-import asyncio
-import datetime
-import json
-import re
 import os
+from datetime import datetime
+
+intents = discord.Intents.default()
+intents.members = True
+intents.guilds = True
+intents.message_content = True
+
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 TOKEN = os.getenv('DISCORD_TOKEN')
 
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+@bot.event
+async def on_ready():
+    print(f'Bot is ready. Logged in as {bot.user.name}')
 
-MOD_ROLE_FILE = 'mod_roles.json'
-
-# Load mod roles
-def load_mod_roles():
-    try:
-        with open(MOD_ROLE_FILE, 'r') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
-
-def save_mod_roles(data):
-    with open(MOD_ROLE_FILE, 'w') as f:
-        json.dump(data, f, indent=4)
-
-mod_roles = load_mod_roles()
-
-def is_mod(ctx):
-    if ctx.author.guild_permissions.manage_guild:
-        return True
-    guild_id = str(ctx.guild.id)
-    role_id = mod_roles.get(guild_id)
-    if role_id:
-        role = discord.utils.get(ctx.guild.roles, id=int(role_id))
-        return role in ctx.author.roles
-    return False
-
-def parse_date(input_str):
-    formats = [
-        "%Y-%m-%d",
-        "%m-%d-%y",
-        "%m/%d",
-        "%B %d",
-        "%b %d",
-        "%B %d, %Y",
-        "%b %d, %Y"
-    ]
-    now = datetime.datetime.now()
-    for fmt in formats:
-        try:
-            dt = datetime.datetime.strptime(input_str, fmt)
-            if not dt.year or dt.year == 1900:
-                dt = dt.replace(year=now.year)
-            return dt
-        except ValueError:
-            continue
-    return None
-
-@bot.command(name='setupmod')
-async def setupmod(ctx, role: discord.Role):
-    if not ctx.author.guild_permissions.manage_guild:
-        return await ctx.send("You must have 'Manage Server' permission to use this command.")
-    mod_roles[str(ctx.guild.id)] = str(role.id)
-    save_mod_roles(mod_roles)
-    await ctx.send(f"✅ Mod role set to {role.mention}")
-
-@bot.command(name='deletemod')
-async def deletemod(ctx):
-    if not ctx.author.guild_permissions.manage_guild:
-        return await ctx.send("You must have 'Manage Server' permission to use this command.")
-    if str(ctx.guild.id) in mod_roles:
-        del mod_roles[str(ctx.guild.id)]
-        save_mod_roles(mod_roles)
-        await ctx.send("✅ Mod role restriction removed.")
-    else:
-        await ctx.send("No mod role was set.")
-
-@bot.command(name='phelp')
-async def phelp(ctx):
-    help_text = (
-        "**MassKick Bot Commands**\n"
-        "`!setupmod @Role` — Set who can run commands\n"
-        "`!deletemod` — Remove mod-only restriction\n"
-        "`!masskick @RoleName` — Kick all users with that role\n"
-        "`!masskick role:@RoleName before:July 4` — Kick users with that role who joined before the date\n"
-        "`!masskick role:@RoleName on:2025-08-01` — Kick users who joined on that date\n"
-        "`!masskick role:@RoleName after:07/04` — Kick users who joined after that date\n"
-        "\n✅ Supported date formats: `2025-08-01`, `07-04-25`, `07/04`, `July 4`, `July 4, 2025`"
-    )
+@bot.command()
+async def help(ctx):
+    help_text = """
+**Renamer Bot Commands**
+`!help` – Show this help message  
+`!masskick role: @RoleName before: YYYY-MM-DD` – Kicks users with role before specified date  
+Supports `before:`, `after:`, or `on:` filters.  
+Example:
+`!masskick role: @Newbie before: 2025-08-01`
+    """
     await ctx.send(help_text)
 
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def masskick(ctx, *, args):
-    if not is_mod(ctx):
-        return await ctx.send("🚫 You don't have permission to use this command.")
+    guild = ctx.guild
+    params = args.lower().split()
 
-    args = args.strip()
+    role = None
+    date_filter = None
+    filter_type = None
 
-    if re.fullmatch(r'<@&\d+>|\d+', args):
-        role_id = int(re.sub(r'\D', '', args))
-        role = ctx.guild.get_role(role_id)
-        date_type = None
-        target_date = None
-    elif re.fullmatch(r'@?\w+', args):
-        role = discord.utils.get(ctx.guild.roles, name=args.replace('@', ''))
-        date_type = None
-        target_date = None
-    else:
-        role_match = re.search(r'role:(<@&\d+>|\d+|[^\s]+)', args)
-        date_match = re.search(r'(before|after|on):([^\n]+)', args)
-
-        if not role_match:
-            return await ctx.send("❌ Invalid command. You must provide a role.")
-
-        role_input = role_match.group(1).strip()
-        if role_input.startswith("<@&"):
-            role_id = int(re.sub(r'\D', '', role_input))
-            role = ctx.guild.get_role(role_id)
-        elif role_input.isdigit():
-            role = ctx.guild.get_role(int(role_input))
-        else:
-            role = discord.utils.get(ctx.guild.roles, name=role_input)
-
-        if not role:
-            return await ctx.send("❌ Role not found.")
-
-        if date_match:
-            date_type = date_match.group(1).lower()
-            date_str = date_match.group(2).strip()
-            target_date = parse_date(date_str)
-
-            if not target_date:
-                return await ctx.send("❌ Invalid date format.")
-        else:
-            date_type = None
-            target_date = None
+    for i, param in enumerate(params):
+        if param.startswith("role:"):
+            role_name = args[args.lower().find("role:") + 5:].split(" ")[0].strip()
+            role = discord.utils.get(guild.roles, name=role_name) or discord.utils.get(ctx.message.role_mentions)
+        elif param.startswith("before:"):
+            filter_type = "before"
+            date_filter = params[i].replace("before:", "")
+        elif param.startswith("after:"):
+            filter_type = "after"
+            date_filter = params[i].replace("after:", "")
+        elif param.startswith("on:"):
+            filter_type = "on"
+            date_filter = params[i].replace("on:", "")
 
     if not role:
-        return await ctx.send("❌ Role not found.")
-
-    members = [m for m in ctx.guild.members if role in m.roles and not m.bot]
-
-    if date_type == "before":
-        filtered = [m for m in members if m.joined_at and m.joined_at < target_date]
-    elif date_type == "after":
-        filtered = [m for m in members if m.joined_at and m.joined_at > target_date]
-    elif date_type == "on":
-        filtered = [m for m in members if m.joined_at and m.joined_at.date() == target_date.date()]
-    else:
-        filtered = members
-
-    if not filtered:
-        return await ctx.send("⚠️ No matching members found.")
-
-    await ctx.send(f"⚠️ Found {len(filtered)} member(s) with role {role.mention}{f' who joined {date_type} {target_date.strftime('%Y-%m-%d')}' if date_type else ''}.\nType `YES` to confirm kicking them.")
-
-    def check(m):
-        return m.author == ctx.author and m.channel == ctx.channel
+        await ctx.send("⚠️ Could not find that role.")
+        return
+    if not date_filter:
+        await ctx.send("⚠️ You need to specify a date filter using `before:`, `after:` or `on:`.")
+        return
 
     try:
-        msg = await bot.wait_for('message', timeout=30.0, check=check)
-        if msg.content.strip().upper() != "YES":
-            return await ctx.send("❌ Cancelled.")
-    except asyncio.TimeoutError:
-        return await ctx.send("⌛ No confirmation received. Cancelled.")
+        target_date = datetime.strptime(date_filter, "%Y-%m-%d")
+    except ValueError:
+        await ctx.send("⚠️ Invalid date format. Use YYYY-MM-DD.")
+        return
 
-    count = 0
-    for member in filtered:
-        try:
-            await member.kick(reason=f"Mass kick by {ctx.author} via bot")
-            count += 1
-            await asyncio.sleep(2)  # safe delay per user
-        except Exception as e:
-            await ctx.send(f"⚠️ Failed to kick {member.display_name}: {e}")
+    kicked = 0
+    failed = 0
+    for member in guild.members:
+        if role in member.roles:
+            joined_at = member.joined_at
+            if not joined_at:
+                continue
 
-    await ctx.send(f"✅ Kicked {count} member(s). Done.")
+            should_kick = (
+                (filter_type == "before" and joined_at < target_date) or
+                (filter_type == "after" and joined_at > target_date) or
+                (filter_type == "on" and joined_at.date() == target_date.date())
+            )
 
-import os
-TOKEN = os.getenv('DISCORD_TOKEN')
+            if should_kick:
+                try:
+                    await member.kick(reason=f"Masskick by {ctx.author}")
+                    kicked += 1
+                except:
+                    failed += 1
+
+    await ctx.send(f"✅ Kicked {kicked} member(s) with role {role.name} using `{filter_type}: {date_filter}`.\n❌ Failed to kick {failed}.")
+
+@masskick.error
+async def masskick_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("🚫 You don’t have permission to use this command.")
+    else:
+        await ctx.send("⚠️ Error while processing command.")
+
 bot.run(TOKEN)
