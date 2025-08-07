@@ -6,7 +6,7 @@ import re
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
 
 DATE_FORMATS = ["%Y-%m-%d", "%B %d", "%b %d", "%d %B %Y", "%d %b %Y"]
 
@@ -23,7 +23,7 @@ async def on_ready():
     print(f'Logged in as {bot.user}')
 
 @bot.command()
-async def help(ctx):
+async def phelp(ctx):
     help_msg = (
         "**Commands:**\n"
         "`!masskick role: @Role before: YYYY-MM-DD`\n"
