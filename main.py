@@ -112,18 +112,28 @@ async def masskick(ctx, *, args):
         await ctx.send("⌛ Timed out. Mass kick canceled.")
         return
 
-    kicked = 0
-    for member in matching_members:
-        try:
-            await member.kick(reason="Mass kick via bot command")
-            kicked += 1
-            await asyncio.sleep(1)  # Avoid hitting rate limits
-        except discord.Forbidden:
-            await ctx.send(f"⚠️ Cannot kick {member.name} - missing permissions.")
-        except Exception as e:
-            await ctx.send(f"⚠️ Failed to kick {member.name}: {str(e)}")
+kicked = 0
+failed = []
 
-    await ctx.send(f"✅ Kicked {kicked}/{len(matching_members)} members.")
+for member in members_to_kick:
+    try:
+        await member.kick(reason="Mass kick command")
+        kicked += 1
+    except discord.Forbidden:
+        failed.append(str(member))
+    except Exception as e:
+        failed.append(f"{member} ({e.__class__.__name__})")
+
+# Send one final summary message
+summary_message = f"✅ Kicked **{kicked}/{len(members_to_kick)}** members."
+
+if failed:
+    preview_failed = "\n".join(failed[:10])
+    summary_message += f"\n⚠️ Failed to kick {len(failed)} members."
+    if len(failed) > 0:
+        summary_message += f"\n```\n{preview_failed}\n...and {len(failed) - 10} more.\n```" if len(failed) > 10 else f"\n```\n{preview_failed}\n```"
+
+await ctx.send(summary_message)
 
 @bot.command()
 async def phelp(ctx):
