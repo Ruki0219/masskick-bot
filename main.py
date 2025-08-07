@@ -92,10 +92,17 @@ async def masskick(ctx, *, args):
 
     preview_list = '\n'.join(f"{m.name} (joined: {m.joined_at.strftime('%Y-%m-%d')})" for m in matching_members[:15])
     embed = discord.Embed(title="Mass Kick Confirmation", color=discord.Color.orange())
-    embed.description = (
-        f"⚠️ Are you sure you want to kick **{len(matching_members)}** members with the role {role.mention}?\n"
-        f"Preview:\n```\n{preview_list}\n...and {len(matching_members) - 15} more." if len(matching_members) > 15 else f"Preview:\n```\n{preview_list}```"
-    )
+    if len(matching_members) > 15:
+        embed.description = (
+            f"⚠️ Are you sure you want to kick **{len(matching_members)}** members with the role {role.mention}?\n"
+            f"Preview:\n```\n{preview_list}\n...and {len(matching_members) - 15} more.\n```"
+        )
+    else:
+        embed.description = (
+            f"⚠️ Are you sure you want to kick **{len(matching_members)}** members with the role {role.mention}?\n"
+            f"Preview:\n```\n{preview_list}\n```"
+        )
+
     message = await ctx.send(embed=embed)
     await message.add_reaction("✅")
     await message.add_reaction("❌")
@@ -112,28 +119,31 @@ async def masskick(ctx, *, args):
         await ctx.send("⌛ Timed out. Mass kick canceled.")
         return
 
-kicked = 0
-failed = []
+    # Proceed to kick
+    kicked = 0
+    failed = []
 
-for member in members_to_kick:
-    try:
-        await member.kick(reason="Mass kick command")
-        kicked += 1
-    except discord.Forbidden:
-        failed.append(str(member))
-    except Exception as e:
-        failed.append(f"{member} ({e.__class__.__name__})")
+    for member in matching_members:
+        try:
+            await member.kick(reason="Mass kick command")
+            kicked += 1
+        except discord.Forbidden:
+            failed.append(str(member))
+        except Exception as e:
+            failed.append(f"{member} ({e.__class__.__name__})")
 
-# Send one final summary message
-summary_message = f"✅ Kicked **{kicked}/{len(members_to_kick)}** members."
+    # Final summary
+    summary_message = f"✅ Kicked **{kicked}/{len(matching_members)}** members."
 
-if failed:
-    preview_failed = "\n".join(failed[:10])
-    summary_message += f"\n⚠️ Failed to kick {len(failed)} members."
-    if len(failed) > 0:
-        summary_message += f"\n```\n{preview_failed}\n...and {len(failed) - 10} more.\n```" if len(failed) > 10 else f"\n```\n{preview_failed}\n```"
+    if failed:
+        preview_failed = "\n".join(failed[:10])
+        summary_message += f"\n⚠️ Failed to kick {len(failed)} members."
+        summary_message += f"\n```\n{preview_failed}"
+        if len(failed) > 10:
+            summary_message += f"\n...and {len(failed) - 10} more."
+        summary_message += "\n```"
 
-await ctx.send(summary_message)
+    await ctx.send(summary_message)
 
 @bot.command()
 async def phelp(ctx):
