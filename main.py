@@ -4,6 +4,8 @@ import asyncio
 import datetime
 import json
 import re
+import os
+TOKEN = os.getenv('DISCORD_TOKEN')
 
 intents = discord.Intents.default()
 intents.message_content = True
