@@ -114,4 +114,6 @@ async def masskick(ctx, *, args):
 
     await ctx.send(f"✅ Kicked {count}/{len(matching_members)} members.")
 
-bot.run('TOKEN')
+import os
+TOKEN = os.getenv("DISCORD_TOKEN")
+bot.run(TOKEN)
