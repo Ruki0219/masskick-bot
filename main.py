@@ -8,24 +8,28 @@ intents.members = True
 intents.guilds = True
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+# Disable default help command so we can define our own custom ones
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 TOKEN = os.getenv('DISCORD_TOKEN')
 
 @bot.event
 async def on_ready():
-    print(f'Bot is ready. Logged in as {bot.user.name}')
+    print(f'✅ Bot is ready. Logged in as {bot.user.name}')
 
-@bot.command()
-async def help(ctx):
+@bot.command(name='phelp')
+async def phelp(ctx):
     help_text = """
-**Renamer Bot Commands**
-`!help` – Show this help message  
-`!masskick role: @RoleName before: YYYY-MM-DD` – Kicks users with role before specified date  
-Supports `before:`, `after:`, or `on:` filters.  
-Example:
-`!masskick role: @Newbie before: 2025-08-01`
-    """
+**MassKick Bot Commands**
+`!phelp` – Show this help message  
+`!masskick role:@RoleName` – Kicks all users with that role  
+`!masskick role:@RoleName before:YYYY-MM-DD` – Kicks users with that role who joined before that date  
+`!masskick role:@RoleName after:YYYY-MM-DD` – Kicks users who joined after that date  
+`!masskick role:@RoleName on:YYYY-MM-DD` – Kicks users who joined on that date  
+
+✅ Example:
+`!masskick role:@Newbie before:2025-08-01`
+"""
     await ctx.send(help_text)
 
 @bot.command()
