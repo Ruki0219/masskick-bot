@@ -5,6 +5,7 @@ import datetime
 import json
 import re
 import os
+
 TOKEN = os.getenv('DISCORD_TOKEN')
 
 intents = discord.Intents.default()
@@ -178,4 +179,6 @@ async def masskick(ctx, *, args):
 
     await ctx.send(f"✅ Kicked {count} member(s). Done.")
 
-bot.run('YOUR_BOT_TOKEN')
+import os
+TOKEN = os.getenv('DISCORD_TOKEN')
+bot.run(TOKEN)
