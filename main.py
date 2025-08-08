@@ -36,127 +36,148 @@ def parse_date(date_str):
             continue
     return None
 
-@bot.command()
+@bot.command(name="masskick")
 @commands.has_permissions(kick_members=True)
-async def masskick(ctx, *, args):
-    arg_pattern = r'(\w+):\s*([^\n]+)'
-    matches = dict(re.findall(arg_pattern, args))
+async def masskick(ctx, *, args=None):
+    import re
+    from datetime import datetime
 
-    role_mention = matches.get("role")
-    before = matches.get("before")
-    after = matches.get("after")
-    on = matches.get("on")
-
-    if not role_mention:
-        await ctx.send("❌ Please provide a role.")
+    # No args → show usage
+    if not args:
+        await ctx.send(
+            "❌ Missing arguments.\n"
+            "Usage: `!masskick @Role [before:YYYY-MM-DD | after:YYYY-MM-DD | on:YYYY-MM-DD]`\n"
+            "Example: `!masskick @Visitors before:2025-08-08`"
+        )
         return
 
-    # Resolve role from mention or name
-    role_id_match = re.search(r'<@&(\d+)>', role_mention)
+    # Extract role mention or role:Name
+    role_match = re.search(r"<@&(\d+)>|role:\s*([^\s]+)", args)
+    if not role_match:
+        await ctx.send(
+            "❌ Please mention a role or use `role:RoleName`.\n"
+            "Example: `!masskick @Visitors before:2025-08-08`"
+        )
+        return
+
+    role_id = role_match.group(1)
+    role_name = role_match.group(2)
     role = None
-    if role_id_match:
-        role_id = int(role_id_match.group(1))
-        role = ctx.guild.get_role(role_id)
-    else:
-        role = get(ctx.guild.roles, name=role_mention.strip())
+
+    if role_id:
+        role = ctx.guild.get_role(int(role_id))
+    elif role_name:
+        role = discord.utils.find(lambda r: r.name.lower() == role_name.lower(), ctx.guild.roles)
 
     if not role:
         await ctx.send("❌ Role not found.")
         return
 
-    # Parse date filters
-    before_date = parse_date(before) if before else None
-    after_date = parse_date(after) if after else None
-    on_date = parse_date(on) if on else None
+    # Extract and validate date filter
+    date_filter = None
+    date_type = None
+    date_match = re.search(r"(before|after|on):\s*([^\s]+)", args)
+    if date_match:
+        date_type = date_match.group(1).lower()
+        date_str = date_match.group(2)
 
-    if on_date:
-        # Narrow range to one day
-        after_date = on_date.replace(hour=0, minute=0, second=0)
-        before_date = on_date.replace(hour=23, minute=59, second=59)
+        # Strict YYYY-MM-DD format check
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
+            await ctx.send(
+                f"❌ Invalid date format `{date_str}`.\n"
+                "Please use **YYYY-MM-DD**.\n"
+                "Example: `!masskick @Visitors before:2025-08-08`"
+            )
+            return
 
-    # Build filtered member list
-    matching_members = []
-    async for member in ctx.guild.fetch_members(limit=None):
-        if member.bot or role not in member.roles or not member.joined_at:
-            continue
-        joined = member.joined_at.replace(tzinfo=None)
-        if before_date and joined >= before_date:
-            continue
-        if after_date and joined <= after_date:
-            continue
-        matching_members.append(member)
+        try:
+            date_filter = datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            await ctx.send(
+                f"❌ Invalid date `{date_str}`.\n"
+                "Please ensure the date exists and use **YYYY-MM-DD** format.\n"
+                "Example: `!masskick @Visitors before:2025-08-08`"
+            )
+            return
 
-    if not matching_members:
-        await ctx.send("✅ No matching members found.")
+    # Find members matching role (and date if provided)
+    members_to_kick = []
+    for member in role.members:
+        if member.bot:
+            continue
+        if date_filter:
+            joined_at = member.joined_at.replace(tzinfo=None)
+            if date_type == "before" and joined_at >= date_filter:
+                continue
+            if date_type == "after" and joined_at <= date_filter:
+                continue
+            if date_type == "on" and joined_at.date() != date_filter.date():
+                continue
+        members_to_kick.append(member)
+
+    if not members_to_kick:
+        await ctx.send("❌ No members found matching that criteria.")
         return
 
-    preview_list = '\n'.join(f"{m.name} (joined: {m.joined_at.strftime('%Y-%m-%d')})" for m in matching_members[:15])
-    embed = discord.Embed(title="Mass Kick Confirmation", color=discord.Color.orange())
-    if len(matching_members) > 15:
-        embed.description = (
-            f"⚠️ Are you sure you want to kick **{len(matching_members)}** members with the role {role.mention}?\n"
-            f"Preview:\n```\n{preview_list}\n...and {len(matching_members) - 15} more.\n```"
-        )
-    else:
-        embed.description = (
-            f"⚠️ Are you sure you want to kick **{len(matching_members)}** members with the role {role.mention}?\n"
-            f"Preview:\n```\n{preview_list}\n```"
-        )
+    # Confirmation message
+    member_list_str = "\n".join([f"{m} (Joined: {m.joined_at.date()})" for m in members_to_kick])
+    preview_msg = f"**You are about to kick {len(members_to_kick)} members with the role `{role.name}`**"
+    if date_filter:
+        preview_msg += f" ({date_type}: {date_filter.date()})"
+    preview_msg += f"\n```\n{member_list_str}\n```"
+    preview_msg += "\nType `yes` to confirm, `no` to cancel."
 
-    message = await ctx.send(embed=embed)
-    await message.add_reaction("✅")
-    await message.add_reaction("❌")
+    await ctx.send(preview_msg)
 
-    def check(reaction, user):
-        return user == ctx.author and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == message.id
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() in ["yes", "no"]
 
     try:
-        reaction, _ = await bot.wait_for("reaction_add", timeout=30.0, check=check)
-        if str(reaction.emoji) == "❌":
-            await ctx.send("❌ Mass kick canceled.")
-            return
+        confirm = await bot.wait_for("message", check=check, timeout=30)
     except asyncio.TimeoutError:
-        await ctx.send("⌛ Timed out. Mass kick canceled.")
+        await ctx.send("⏳ Confirmation timed out. Cancelled.")
         return
 
-    # Proceed to kick
-    kicked = 0
-    failed = []
+    if confirm.content.lower() != "yes":
+        await ctx.send("❌ Cancelled.")
+        return
 
-    for member in matching_members:
+    # Kick members
+    kicked_count = 0
+    failed = []
+    for member in members_to_kick:
         try:
             await member.kick(reason="Mass kick command")
-            kicked += 1
-        except discord.Forbidden:
+            kicked_count += 1
+        except Exception:
             failed.append(str(member))
-        except Exception as e:
-            failed.append(f"{member} ({e.__class__.__name__})")
 
-    # Final summary
-    summary_message = f"✅ Kicked **{kicked}/{len(matching_members)}** members."
-
+    # Final result
+    result_msg = f"✅ Kicked {kicked_count}/{len(members_to_kick)} members."
     if failed:
-        preview_failed = "\n".join(failed[:10])
-        summary_message += f"\n⚠️ Failed to kick {len(failed)} members."
-        summary_message += f"\n```\n{preview_failed}"
-        if len(failed) > 10:
-            summary_message += f"\n...and {len(failed) - 10} more."
-        summary_message += "\n```"
-
-    await ctx.send(summary_message)
+        result_msg += f"\n⚠️ Failed to kick {len(failed)} members:\n```\n" + "\n".join(failed) + "\n```"
+    await ctx.send(result_msg)
 
 @bot.command()
 async def phelp(ctx):
     help_msg = (
-        "**Commands:**\n"
-        "`!masskick role: @Role before: YYYY-MM-DD`\n"
-        "`!masskick role: @Role after: August 1`\n"
-        "`!masskick role: @Role on: 2025-08-01`\n"
-        "\n**Examples:**\n"
-        "`!masskick role: @Newbie before: 2025-08-01`\n"
-        "`!masskick role: @Trial after: August 1`\n"
-        "`!masskick role: @Raiders on: 1 Aug 2025`\n"
-        "\nSupports flexible date formats and will ask for confirmation before kicking."
+        "```"
+        "Mass Kick Command Help\n"
+        "\n"
+        "Usage:\n"
+        "!masskick role:@RoleName [before:YYYY-MM-DD] [after:YYYY-MM-DD] [on:YYYY-MM-DD]\n"
+        "\n"
+        "Examples:\n"
+        "!masskick role:@Newbie before:2025-08-01\n"
+        "!masskick role:@Trial after:2025-07-01\n"
+        "!masskick role:@Raiders on:2025-08-01\n"
+        "\n"
+        "Notes:\n"
+        "- Dates must be in YYYY-MM-DD format.\n"
+        "- At least a role mention is required.\n"
+        "- Date filters are optional, but only one type can be used per command.\n"
+        "- Bot will ask for confirmation before kicking.\n"
+        "```"
     )
     await ctx.send(help_msg)
 
